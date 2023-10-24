@@ -36,6 +36,8 @@
   <!-- <audio src="ir_p1.wav"></audio> -->
 
   <script defer>
+    const BUFFER_SIZE = 8192;
+    
     if ('AudioWorklet' in window) {
       const audioContext = new AudioContext();
 
