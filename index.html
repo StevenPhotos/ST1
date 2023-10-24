@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+  
+  <!-- <script src="soundtouch.js" defer></script> -->
+  <!-- <script src="main.js" defer></script> -->
+  <!-- <script defer>
+    if ('AudioWorklet' in window) {
+      audioContext.audioWorklet.addModule('audio-processor.js').then(() => {
+        // Audio Worklet processor is loaded and ready to use.
+      });
+    }
+  </script> -->
+</head>
+<body>
+
+  <label for="fileInput">Select an audio File:</label>
+  <input type="file" id="fileInput">
+  
+  <button id="playButton">Play</button>
+  <button id="pauseButton">Pause</button>
+  
+  <label for="tempoSlider">Tempo:</label>
+  <input type="range" id="tempoSlider" min="0.5" max="2" step="0.05" value="1">
+  
+  <label for="pitchSlider">Pitch:</label>
+  <input type="range" id="pitchSlider" min="0.5" max="2" step="0.05" value="1">
+
+  <br>
+  <label for="seekSlider">Seek:</label>
+  <input type="range" id="seekSlider" min="0" max="1" value="0" step="0.01">
+  <div id="currentTime">0:00</div>
+  <!-- <audio src="ir_p1.wav"></audio> -->
+
+  <script>
+    if ('AudioWorklet' in window) {
+      const audioContext = new AudioContext();
+
+      // Load the Audio Worklet processor
+      audioContext.audioWorklet.addModule('audio-processor.js').then(() => {
+        // Audio Worklet processor is loaded and ready to use.
+
+        // AudioPlayer class with modifications for Audio Worklet
+        class AudioPlayer {
+          constructor({ emitter, pitch, tempo }) {
+            this.emitter = emitter;
+
+            this.context = audioContext; // Use the same audio context
+
+            // Create an AudioWorkletNode using the registered processor
+            this.audioWorkletNode = new AudioWorkletNode(this.context, 'audio-processor');
+
+            // Set up your audio processing logic by connecting the AudioWorkletNode
+            // For example: this.audioWorkletNode.connect(this.context.destination);
+
+            this.soundTouch = new SoundTouch();
+            this.soundTouch.pitch = pitch;
+            this.soundTouch.tempo = tempo;
+
+            this.duration = undefined;
+
+            this.volumeNode = this.context.createGain();
+            this.volumeNode.gain.value = 0.5;
+          }
+
+          // Other methods and properties remain the same.
+          // ...
+
+          get pitch() {
+            return this.soundTouch.pitch;
+          }
+          set pitch(pitch) {
+              this.soundTouch.pitch = pitch;
+          }
+
+          get tempo() {
+              return this.soundTouch.tempo;
+          }
+          set tempo(tempo) {
+              this.soundTouch.tempo = tempo;
+          }
+
+          decodeAudioData(data) {
+              return this.context.decodeAudioData(data);
+          }
+
+          setBuffer(buffer) {
+              const bufferSource = this.context.createBufferSource();
+              bufferSource.buffer = buffer;
+
+              this.samples = new Float32Array(BUFFER_SIZE * 2);
+              this.source = {
+                  extract: (target, numFrames, position) => {
+                      this.emitter.emit('state', {t: position / this.context.sampleRate});
+                      const l = buffer.getChannelData(0);
+                      const r = buffer.getChannelData(1);
+                      for (let i = 0; i < numFrames; i++) {
+                          target[i * 2] = l[i + position];
+                          target[i * 2 + 1] = r[i + position];
+                      }
+                      return Math.min(numFrames, l.length - position);
+                  },
+              };
+              this.simpleFilter = new SimpleFilter(this.source, this.soundTouch);
+
+              this.duration = buffer.duration;
+              this.emitter.emit('state', {duration: buffer.duration});
+          }
+
+          play() {
+            // Connect the AudioWorkletNode
+            this.audioWorkletNode.connect(this.volumeNode);
+            this.volumeNode.connect(this.context.destination);
+          }
+
+          pause() {
+            // Disconnect the AudioWorkletNode
+            this.audioWorkletNode.disconnect(this.volumeNode);
+            this.volumeNode.disconnect(this.context.destination);
+          }
+
+          // Other methods and properties remain the same.
+          // ...
+
+          get durationVal(){
+            return this.simpleFilter.sourcePosition;
+          }
+
+          seekPercent(percent) {
+              if (this.simpleFilter !== undefined) {
+                  this.simpleFilter.sourcePosition = Math.round(
+                      percent / 100 * this.duration * this.context.sampleRate
+                  );
+              }
+          }
+        }
+
+        // The rest of your JavaScript code
+        const fileInput = document.getElementById('fileInput');
+        const playButton = document.getElementById('playButton');
+        const pauseButton = document.getElementById('pauseButton');
+        const tempoSlider = document.getElementById('tempoSlider');
+        const pitchSlider = document.getElementById('pitchSlider');
+        const seekSlider = document.getElementById('seekSlider');
+        const currentTimeDisplay = document.getElementById('currentTime');
+
+        let myInterval;
+
+        let isPlaying = false;
+
+        let audioPlayer;
+
+
+        fileInput.addEventListener('change', async (e, impulse) => {
+            if(audioPlayer){
+                if(isPlaying){
+                    audioPlayer.pause();
+                    isPlaying = false;
+                    audioPlayer = undefined;
+                }
+                else if(!isPlaying){
+                    audioPlayer = undefined;
+                }
+            };
+
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            audioPlayer = new AudioPlayer({
+                emitter: {
+                    emit: () => {},
+                },
+                pitch: pitchSlider.value,
+                tempo: tempoSlider.value
+            });
+
+            try {
+                const response = await fetch(URL.createObjectURL(file));
+                const buffer = await response.arrayBuffer();
+                const audioData = await audioPlayer.decodeAudioData(buffer);
+                audioPlayer.setBuffer(audioData);
+
+                audioPlayer.play();
+                isPlaying = true;
+
+                myInterval = setInterval(()=>{
+                    updateSeek(audioPlayer, seekSlider);
+                }, 1000);
+
+            } catch (error) {
+                console.error(error);
+            }
+
+        });
+
+
+
+        function updateSeek(audioPlayer, seekSlider) {
+            if(audioPlayer){
+                // console.log("seeking");
+                let sourcePostion = audioPlayer.durationVal;
+                seekSlider.value = sourcePostion / 48000 / audioPlayer.duration;
+            }
+        }
+
+        playButton.addEventListener('click', () => {
+            if (!audioPlayer) return;
+            if(!isPlaying){
+                audioPlayer.play();
+                isPlaying = true;
+                myInterval = setInterval(()=>{
+                    updateSeek(audioPlayer, seekSlider);
+                }, 1000);
+            }
+        });
+
+        pauseButton.addEventListener('click', () => {
+            if (!audioPlayer) return;
+            if(isPlaying){
+                audioPlayer.pause();
+                isPlaying = false;
+                clearInterval(myInterval);
+            }
+        });
+
+
+        tempoSlider.addEventListener('input', () => {
+            if (audioPlayer) {
+                audioPlayer.tempo = tempoSlider.value;
+            }
+        });
+
+        pitchSlider.addEventListener('input', () => {
+            if (audioPlayer) {
+                audioPlayer.pitch = pitchSlider.value;
+            }
+        });
+
+
+        seekSlider.addEventListener('input', ()=>{
+            let percentage = seekSlider.value * 100;
+            if(audioPlayer){
+                audioPlayer.seekPercent(percentage);
+            }
+        })
+      });
+    }
+</script>
+</body>
+</html>
