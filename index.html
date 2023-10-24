@@ -57,6 +57,7 @@
 
             // Set up your audio processing logic by connecting the AudioWorkletNode
             // For example: this.audioWorkletNode.connect(this.context.destination);
+            this.audioWorkletNode.connect(this.context.destination);
 
             this.soundTouch = new SoundTouch();
             this.soundTouch.pitch = pitch;
@@ -114,14 +115,14 @@
 
           play() {
             // Connect the AudioWorkletNode
-            this.audioWorkletNode.connect(this.volumeNode);
-            this.volumeNode.connect(this.context.destination);
+            this.audioWorkletNode.connect(this.context.destination);
+            //this.volumeNode.connect(this.context.destination);
           }
 
           pause() {
             // Disconnect the AudioWorkletNode
-            this.audioWorkletNode.disconnect(this.volumeNode);
-            this.volumeNode.disconnect(this.context.destination);
+            this.audioWorkletNode.disconnect(this.context.destination);
+            //this.volumeNode.disconnect(this.context.destination);
           }
 
           // Other methods and properties remain the same.
